@@ -10,3 +10,4 @@ TgCrypto
 requests
 pyrogram==2.0.106
 pymongo
+httpx
