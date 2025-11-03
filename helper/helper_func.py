@@ -1,3 +1,4 @@
+
 import base64
 import re
 import asyncio
@@ -107,8 +108,6 @@ async def get_message_id(client, message):
                 return msg_id, client_db_int
             
             # Check against multiple DB channels usernames
-            # Note: This is inefficient (uses get_chat in a loop).
-            # Consider caching usernames in client.db_channels at startup.
             db_channels = getattr(client, 'db_channels', {})
             for channel_id_str, channel_data in db_channels.items():
                 try:
@@ -129,6 +128,7 @@ async def get_message_id_legacy(client, message):
     """Legacy function for backward compatibility - returns only message ID"""
     msg_id, _ = await get_message_id(client, message)
     return msg_id
+
 
 #===============================================================#
 
@@ -368,6 +368,8 @@ def force_sub(func):
         if is_user_subscribed(statuses):
             if msg:
                 await msg.delete()
+            # 💡 User is subscribed, clear any old pending payload
+            await client.mongodb.clear_pending_payload(user_id)
             return await func(client, message)
 
         # User is not subscribed to all channels
@@ -410,11 +412,23 @@ def force_sub(func):
                 
                 buttons.append(InlineKeyboardButton(button_text, url=channel_link))
 
-        # Add "Try Again" button if needed
+        # --- 💡 MODIFICATION START ---
+        # 1. Save the pending payload to the DB instead of showing "Try Again"
         from_link = message.text.split(" ")
-        if len(from_link) > 1:
-            try_again_link = f"https://krpicture1.blogspot.com/?start={from_link[1]}"
-            buttons.append(InlineKeyboardButton("🔄 Try Again", url=try_again_link))
+        if message.command and message.command[0] == "start" and len(from_link) > 1:
+            try:
+                payload = from_link[1]
+                await client.mongodb.set_pending_payload(user_id, payload)
+                client.LOGGER(__name__, client.name).info(f"Saved pending payload for {user_id}")
+            except Exception as e:
+                client.LOGGER(__name__, client.name).warning(f"Failed to set pending payload: {e}")
+        
+        # 2. REMOVED the "Try Again" button
+        # if len(from_link) > 1:
+        #    try_again_link = f"https://krpicture1.blogspot.com/?start={from_link[1]}"
+        #    buttons.append(InlineKeyboardButton("🔄 Try Again", url=try_again_link))
+        # --- 💡 MODIFICATION END ---
+
 
         # Organize buttons in rows of 1 for better readability
         buttons_markup = InlineKeyboardMarkup([[button] for button in buttons]) if buttons else None
@@ -422,17 +436,17 @@ def force_sub(func):
         # Edit message with status update and buttons
         try:
             if msg:
-                await msg.edit_text(text=channels_message, reply_markup=buttons_markup)
+                await msg.edit_text(text=channels_message, reply_markup=buttons_markup, disable_web_page_preview=True)
             else:
                 # Fallback if 'wait' message failed
-                await message.reply(text=channels_message, reply_markup=buttons_markup)
+                await message.reply(text=channels_message, reply_markup=buttons_markup, disable_web_page_preview=True)
         except Exception as e:
             client.LOGGER(__name__, client.name).warning(f"Error updating force sub message: {e}")
             # Fallback: send new message if edit fails
             try:
                 if msg:
                     await msg.delete()
-                await message.reply(text=channels_message, reply_markup=buttons_markup)
+                await message.reply(text=channels_message, reply_markup=buttons_markup, disable_web_page_preview=True)
             except Exception:
                 pass
 
@@ -498,7 +512,7 @@ async def auto_del_notification(bot_username, msg, delay_time, transfer):
     except Exception as e:
         print(f"Error occured while editing the Delete message: {e}")
         try:
-            await temp.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ </b>")
+            await temp.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs DᴇʟᴇTᴇᴅ </b>")
         except:
             pass # Ignore if editing fails again
 
@@ -563,6 +577,6 @@ async def batch_auto_del_notification(bot_username, messages, delay_time, transf
                     await notification_msg.edit_text(f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ</b>")
                     print(f"Error editing notification message: {e}")
             else:
-                await notification_msg.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ wᴀs Dᴇʟᴇᴛᴇᴅ</b>")
+                await notification_msg.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ wᴀs DᴇʟᴇTᴇᴅ</b>")
         except Exception as e:
             print(f"Error updating notification message: {e}")
