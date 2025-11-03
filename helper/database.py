@@ -175,7 +175,6 @@ class MongoDB:
 
     async def set_fsub_channels(self, fsub_data: dict):
         """Store fsub channels data to database for persistence across bot restarts"""
-        # 💡 Refactored to use config_data collection
         await self.config_data.update_one(
             {"_id": "fsub_channels"},
             {"$set": {"channels": fsub_data}},
@@ -184,7 +183,6 @@ class MongoDB:
 
     async def get_fsub_channels(self) -> dict:
         """Get fsub channels data from database"""
-        # 💡 Refactored to use config_data collection
         data = await self.config_data.find_one({"_id": "fsub_channels"})
         return data.get("channels", {}) if data else {}
 
@@ -204,7 +202,6 @@ class MongoDB:
 
     async def set_shortner_settings(self, shortner_data: dict):
         """Store shortner settings to database for persistence across bot restarts"""
-        # 💡 Refactored to use config_data collection
         await self.config_data.update_one(
             {"_id": "shortner_settings"},
             {"$set": {"settings": shortner_data}},
@@ -213,7 +210,6 @@ class MongoDB:
 
     async def get_shortner_settings(self) -> dict:
         """Get shortner settings from database"""
-        # 💡 Refactored to use config_data collection
         data = await self.config_data.find_one({"_id": "shortner_settings"})
         return data.get("settings", {}) if data else {}
 
@@ -335,7 +331,6 @@ class MongoDB:
 
     async def cleanup_orphaned_records(self):
         """Clean up records that are no longer valid"""
-        # 💡 FIXED: Get user IDs from ALL user collections
         try:
             # Get all unique user IDs from both users and premium collections
             users_cursor = self.user_data.find({}, {"_id": 1})
@@ -605,7 +600,6 @@ class MongoDB:
 
     async def set_db_channels(self, db_channels_data: dict):
         """Store DB channels data to database for persistence across bot restarts"""
-        # 💡 Refactored to use config_data collection
         await self.config_data.update_one(
             {"_id": "db_channels"},
             {"$set": {"channels": db_channels_data}},
@@ -614,7 +608,6 @@ class MongoDB:
 
     async def get_db_channels(self) -> dict:
         """Get DB channels data from database"""
-        # 💡 Refactored to use config_data collection
         data = await self.config_data.find_one({"_id": "db_channels"})
         return data.get("channels", {}) if data else {}
 
@@ -652,7 +645,7 @@ class MongoDB:
         for ch_id, ch_data in db_channels.items():
             ch_data['is_primary'] = False
         # Set new primary channel
-        if str(channel_id) in db_channels:
+        if channel_id and str(channel_id) in db_channels: # Added check for None
             db_channels[str(channel_id)]['is_primary'] = True
         await self.set_db_channels(db_channels)
 
@@ -679,7 +672,6 @@ class MongoDB:
 
     async def set_bot_settings(self, settings_data: dict):
         """Store bot settings to database for persistence across bot restarts"""
-        # 💡 Refactored to use config_data collection
         await self.config_data.update_one(
             {"_id": "bot_settings"},
             {"$set": {"settings": settings_data}},
@@ -688,7 +680,6 @@ class MongoDB:
 
     async def get_bot_settings(self) -> dict:
         """Get bot settings from database"""
-        # 💡 Refactored to use config_data collection
         data = await self.config_data.find_one({"_id": "bot_settings"})
         return data.get("settings", {}) if data else {}
 
@@ -707,7 +698,6 @@ class MongoDB:
 
     async def set_messages_settings(self, messages_data: dict):
         """Store messages settings to database for persistence across bot restarts"""
-        # 💡 Refactored to use config_data collection
         await self.config_data.update_one(
             {"_id": "messages_settings"},
             {"$set": {"messages": messages_data}},
@@ -716,7 +706,6 @@ class MongoDB:
 
     async def get_messages_settings(self) -> dict:
         """Get messages settings from database"""
-        # 💡 Refactored to use config_data collection
         data = await self.config_data.find_one({"_id": "messages_settings"})
         return data.get("messages", {}) if data else {}
 
@@ -735,7 +724,6 @@ class MongoDB:
 
     async def set_admins_list(self, admins_list: list):
         """Store admins list to database for persistence across bot restarts"""
-        # 💡 Refactored to use config_data collection
         await self.config_data.update_one(
             {"_id": "admins_list"},
             {"$set": {"admins": admins_list}},
@@ -744,7 +732,6 @@ class MongoDB:
 
     async def get_admins_list(self) -> list:
         """Get admins list from database"""
-        # 💡 Refactored to use config_data collection
         data = await self.config_data.find_one({"_id": "admins_list"})
         return data.get("admins", []) if data else []
 
