@@ -56,13 +56,13 @@ async def shortner_panel(client, query_or_message):
     # Get current shortner settings
     short_url = getattr(client, 'short_url', SHORT_URL)
     short_api = getattr(client, 'short_api', SHORT_API)
-    tutorial_link = getattr(client, 'tutorial_link', "https://t.me/How_to_Download_7x/26")
+    tutorial_link = getattr(client, 'tutorial_link', "https://t.me/how_to_opan_linkz/6")
     shortner_enabled = getattr(client, 'shortner_enabled', True)
     
     # Check if shortner is working (only if enabled)
     if shortner_enabled:
         try:
-            test_response = requests.get(f"https://{short_url}/api?api={short_api}&url=https://google.com&alias=test", timeout=5)
+            test_response = requests.get(f"https://{short_url}/api?api={short_api}&url=https://t.me/KR_PICTURE&alias=test", timeout=5)
             status = "✓ ᴡᴏʀᴋɪɴɢ" if test_response.status_code == 200 else "✗ ɴᴏᴛ ᴡᴏʀᴋɪɴɢ"
         except:
             status = "✗ ɴᴏᴛ ᴡᴏʀᴋɪɴɢ"
@@ -89,7 +89,7 @@ async def shortner_panel(client, query_or_message):
         [InlineKeyboardButton('◂ ʙᴀᴄᴋ ᴛᴏ ꜱᴇᴛᴛɪɴɢꜱ', 'settings')] if hasattr(query_or_message, 'message') else []
     ])
     
-    image_url = MESSAGES.get("SHORT", "https://telegra.ph/file/8aaf4df8c138c6685dcee-05d3b183d4978ec347.jpg")
+    image_url = MESSAGES.get("SHORT", "https://envs.sh/gz3.jpg")
     
     if hasattr(query_or_message, 'message'):
         await query_or_message.message.edit_media(
@@ -149,7 +149,7 @@ async def add_shortner(client: Client, query: CallbackQuery):
 __<blockquote>**≡ ꜱᴇɴᴅ ɴᴇᴡ ꜱʜᴏʀᴛɴᴇʀ ᴜʀʟ ᴀɴᴅ ᴀᴘɪ ɪɴ ᴛʜɪꜱ ꜰᴏʀᴍᴀᴛ ɪɴ ᴛʜᴇ ɴᴇxᴛ 60 ꜱᴇᴄᴏɴᴅꜱ!**</blockquote>__
 
 **ꜰᴏʀᴍᴀᴛ:** `ᴜʀʟ ᴀᴘɪ`
-**ᴇxᴀᴍᴘʟᴇ:** `inshorturl.com 9435894656863495834957348`"""
+**ᴇxᴀᴍᴘʟᴇ:** `vplink.in ab42d0b5656f5c774f800dacb6739342b6f094aa`"""
     
     await query.message.edit_text(msg)
     try:
@@ -192,12 +192,12 @@ async def set_tutorial_link(client: Client, query: CallbackQuery):
     
     await query.answer()
         
-    current_tutorial = getattr(client, 'tutorial_link', "https://t.me/How_to_Download_7x/26")
+    current_tutorial = getattr(client, 'tutorial_link', "https://t.me/how_to_opan_linkz/6")
     msg = f"""<blockquote>**ꜱᴇᴛ ᴛᴜᴛᴏʀɪᴀʟ ʟɪɴᴋ:**</blockquote>
 **ᴄᴜʀʀᴇɴᴛ ᴛᴜᴛᴏʀɪᴀʟ:** `{current_tutorial}`
 
 __ꜱᴇɴᴅ ᴛʜᴇ ɴᴇᴡ ᴛᴜᴛᴏʀɪᴀʟ ʟɪɴᴋ ɪɴ ᴛʜᴇ ɴᴇxᴛ 60 ꜱᴇᴄᴏɴᴅꜱ!__
-**ᴇxᴀᴍᴘʟᴇ:** `https://t.me/How_to_Download_7x/26`"""
+**ᴇxᴀᴍᴘʟᴇ:** `https://t.me/how_to_opan_linkz/6`"""
     
     await query.message.edit_text(msg)
     try:
@@ -232,7 +232,7 @@ async def test_shortner(client: Client, query: CallbackQuery):
     short_api = getattr(client, 'short_api', SHORT_API)
     
     try:
-        test_url = "https://google.com"
+        test_url = "https://KR_PICTURE"
         alias = generate_random_alphanumeric()
         api_url = f"https://{short_url}/api?api={short_api}&url={test_url}&alias={alias}"
         
@@ -256,5 +256,6 @@ async def test_shortner(client: Client, query: CallbackQuery):
         msg = f"**❌ ꜱʜᴏʀᴛɴᴇʀ ᴛᴇꜱᴛ ꜰᴀɪʟᴇᴅ!**\n\n**ᴇʀʀᴏʀ:** `{str(e)}`"
     
     await query.message.edit_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('◂ ʙᴀᴄᴋ', 'shortner')]]))
+
 
 
