@@ -1,4 +1,4 @@
-
+# Replace your /app/plugins/start.py with this
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from config import MSG_EFFECT, OWNER_ID
@@ -85,7 +85,7 @@ async def request_command(client: Client, message: Message):
         return
 
     if not is_user_premium: 
-        BUTTON_URL = "https://t.me/Sandalwood_Man"
+        BUTTON_URL = "https.t.me/Sandalwood_Man"
         reply_markup = InlineKeyboardMarkup([
             [InlineKeyboardButton("💎 Upgrade to Premium", url=BUTTON_URL)]
         ])
