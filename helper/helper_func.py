@@ -1,4 +1,4 @@
-
+# Replace your /app/helper/helper_func.py with this
 import base64
 import re
 import asyncio
@@ -258,7 +258,7 @@ async def check_subscription(client, user_id):
     for channel_id, (channel_name, channel_link, request, timer) in client.fsub_dict.items():
         try:
             # Get actual membership status first
-            user = await client.get_chat_member(channel_id, user_id)
+            user = await client.get_chat_member(int(channel_id), user_id) # Ensure channel_id is int
             actual_status = user.status
             
             # If user is already a member, admin, or owner
@@ -325,7 +325,7 @@ async def check_subscription(client, user_id):
             client.LOGGER(__name__, client.name).warning(f"Bot lacks permission for {channel_name}.")
             statuses[channel_id] = None
         except Exception as e:
-            client.LOGGER(__name__, client.name).warning(f"Error checking {channel_name}: {e}")
+            client.LOGGER(__name__, client.name).warning(f"Error checking {channel_name} ({channel_id}): {e}")
             statuses[channel_id] = None
 
     return statuses
@@ -384,7 +384,7 @@ def force_sub(func):
                 expire_time = datetime.now() + timedelta(minutes=timer)
                 try:
                     invite = await client.create_chat_invite_link(
-                        chat_id=channel_id,
+                        chat_id=int(channel_id),
                         expire_date=expire_time,
                         creates_join_request=request
                     )
@@ -413,7 +413,7 @@ def force_sub(func):
                 buttons.append(InlineKeyboardButton(button_text, url=channel_link))
 
         # --- 💡 MODIFICATION START ---
-        # 1. Save the pending payload to the DB instead of showing "Try Again"
+        # 1. Save the pending payload to the DB (for the auto-detector)
         from_link = message.text.split(" ")
         if message.command and message.command[0] == "start" and len(from_link) > 1:
             try:
@@ -423,10 +423,9 @@ def force_sub(func):
             except Exception as e:
                 client.LOGGER(__name__, client.name).warning(f"Failed to set pending payload: {e}")
         
-        # 2. REMOVED the "Try Again" button
-        # if len(from_link) > 1:
-        #    try_again_link = f"https://krpicture1.blogspot.com/?start={from_link[1]}"
-        #    buttons.append(InlineKeyboardButton("🔄 Try Again", url=try_again_link))
+        # 2. Add the "Try Again" button (for the manual click)
+            try_again_link = f"https://krpicture1.blogspot.com?start={from_link[1]}"
+            buttons.append(InlineKeyboardButton("🔄 Try Again", url=try_again_link))
         # --- 💡 MODIFICATION END ---
 
 
@@ -483,7 +482,7 @@ def convert_time(duration_seconds: int) -> str:
 #.........Auto Delete Functions.......#
 #===============================================================#
 
-DEL_MSG = """<b>This File is deleting automatically in <a href="https://KR_PICTURE">{time}</a>.. Forward in your Saved Messages..!</b>"""
+DEL_MSG = """<b>This File is deleting automatically in <a href="https://t.me/{username}">{time}</a>.. Forward in your Saved Messages..!</b>"""
 
 #Function for provide auto delete notification message
 async def auto_del_notification(bot_username, msg, delay_time, transfer): 
