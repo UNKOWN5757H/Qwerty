@@ -1,3 +1,4 @@
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from helper.helper_func import encode, get_message_id
@@ -12,12 +13,13 @@ async def get_db_channels_info(client):
     if not db_channels:
         # If no additional DB channels, show primary only
         try:
+            # Added int() for safety
             primary_chat = await client.get_chat(int(primary_db))
             if hasattr(primary_chat, 'invite_link') and primary_chat.invite_link:
                 return f"<blockquote>✦ ᴘʀɪᴍᴀʀʏ ᴅʙ ᴄʜᴀɴɴᴇʟ: <a href='{primary_chat.invite_link}'>{primary_chat.title}</a></blockquote>"
             else:
                 return f"<blockquote>✦ ᴘʀɪᴍᴀʀʏ ᴅʙ ᴄʜᴀɴɴᴇʟ: {primary_chat.title} (`{primary_db}`)</blockquote>"
-        except:
+        except Exception:  # Fixed bare except
             return f"<blockquote>✦ ᴘʀɪᴍᴀʀʏ ᴅʙ ᴄʜᴀɴɴᴇʟ: `{primary_db}`</blockquote>"
 
     # Format all DB channels with links
@@ -32,7 +34,7 @@ async def get_db_channels_info(client):
                 channels_info.append(f"{is_primary_text}: <a href='{chat.invite_link}'>{channel_name}</a>")
             else:
                 channels_info.append(f"{is_primary_text}: {channel_name} (`{channel_id_str}`)")
-        except:
+        except Exception:  # Fixed bare except
             channels_info.append(f"{is_primary_text}: {channel_name} (`{channel_id_str}`)")
 
     return "\n".join(channels_info)
@@ -59,7 +61,7 @@ async def batch(client: Client, message: Message):
                 filters=(filters.forwarded | (filters.text & ~filters.forwarded)),
                 timeout=60
             )
-        except:
+        except asyncio.TimeoutError:  # Fixed bare except
             return
         f_msg_id, source_channel_id = await get_message_id(client, first_message)
         if f_msg_id:
@@ -81,20 +83,33 @@ async def batch(client: Client, message: Message):
                 filters=(filters.forwarded | (filters.text & ~filters.forwarded)),
                 timeout=60
             )
-        except:
+        except asyncio.TimeoutError:  # Fixed bare except
             return
-        s_msg_id, _ = await get_message_id(client, second_message)
-        if s_msg_id:
-            break
-        await second_message.reply(
-            "<blockquote>✗ ᴇʀʀᴏʀ</blockquote>\n\nᴛʜɪs ꜰᴏʀᴡᴀʀᴅᴇᴅ ᴘᴏsᴛ ɪs ɴᴏᴛ ꜰʀᴏᴍ ᴍʏ ᴅʙ ᴄʜᴀɴɴᴇʟ ᴏʀ ᴛʜɪs ʟɪɴᴋ ɪs ᴛᴀᴋᴇɴ ꜰʀᴏᴍ ᴅʙ ᴄʜᴀɴɴᴇʟ",
-            quote=True
-        )
+        
+        # --- 💡 LOGIC FIX ---
+        s_msg_id, s_source_channel_id = await get_message_id(client, second_message)
+        if not s_msg_id:
+            await second_message.reply(
+                "<blockquote>✗ ᴇʀʀᴏʀ</blockquote>\n\nᴛʜɪs ꜰᴏʀᴡᴀʀᴅᴇᴅ ᴘᴏsᴛ ɪs ɴᴏᴛ ꜰʀᴏᴍ ᴍʏ ᴅʙ ᴄʜᴀɴɴᴇʟ ᴏʀ ᴛʜɪs ʟɪɴᴋ ɪs ᴛᴀᴋᴇɴ ꜰʀᴏᴍ ᴅʙ ᴄʜᴀɴɴᴇʟ",
+                quote=True
+            )
+            continue  # Ask again
+        
+        if s_source_channel_id != source_channel_id:
+            await second_message.reply(
+                "<blockquote>✗ ᴇʀʀᴏʀ</blockquote>\n\nꜰɪʀsᴛ ᴀɴᴅ sᴇᴄᴏɴᴅ ᴍᴇssᴀɢᴇs ᴍᴜsᴛ ʙᴇ ꜰʀᴏᴍ ᴛʜᴇ <b>sᴀᴍᴇ</b> ᴅʙ ᴄʜᴀɴɴᴇʟ.",
+                quote=True
+            )
+            continue  # Ask again
+        
+        # If both checks pass, break the loop
+        break
+        # --- END OF FIX ---
 
     # Convert to int safely
     try:
         source_channel_id = int(source_channel_id)
-    except ValueError:
+    except (ValueError, TypeError):
         return await message.reply("⚠️ Invalid source channel ID!")
 
     LOGGER(__name__, client.name).info(
@@ -132,7 +147,7 @@ async def link_generator(client: Client, message: Message):
                 filters=(filters.forwarded | (filters.text & ~filters.forwarded)),
                 timeout=60
             )
-        except:
+        except asyncio.TimeoutError:  # Fixed bare except
             return
         msg_id, source_channel_id = await get_message_id(client, channel_message)
         if msg_id:
@@ -144,7 +159,7 @@ async def link_generator(client: Client, message: Message):
 
     try:
         source_channel_id = int(source_channel_id)
-    except ValueError:
+    except (ValueError, TypeError):
         return await message.reply("⚠️ Invalid source channel ID!")
 
     base64_string = await encode(f"get-{msg_id * abs(source_channel_id)}")
@@ -169,6 +184,10 @@ async def nbatch(client: Client, message: Message):
         return
 
     batch_size = int(args[1])
+    if batch_size <= 0:
+        await message.reply("<blockquote>✗ ɪɴᴠᴀʟɪᴅ ꜰᴏʀᴍᴀᴛ!</blockquote> ɴᴜᴍʙᴇʀ ᴍᴜsᴛ ʙᴇ ɢʀᴇᴀᴛᴇʀ ᴛʜᴀɴ 0.")
+        return
+
     db_channels_info = await get_db_channels_info(client)
 
     while True:
@@ -181,7 +200,7 @@ async def nbatch(client: Client, message: Message):
                 filters=(filters.text & ~filters.forwarded),
                 timeout=60
             )
-        except:
+        except asyncio.TimeoutError:  # Fixed bare except
             return
 
         f_msg_id, source_channel_id = await get_message_id(client, first_message)
@@ -191,7 +210,7 @@ async def nbatch(client: Client, message: Message):
 
     try:
         source_channel_id = int(source_channel_id)
-    except ValueError:
+    except (ValueError, TypeError):
         return await message.reply("⚠️ Invalid source channel ID!")
 
     s_msg_id = f_msg_id + batch_size - 1
