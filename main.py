@@ -14,7 +14,7 @@ async def main():
             WORKERS,
             DB_CHANNEL,
             FSUBS,
-            TOKEN,
+            BOT_TOKEN,
             ADMINS,
             MESSAGES,
             AUTO_DEL,
