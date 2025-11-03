@@ -309,7 +309,7 @@ async def about(client: Client, query: CallbackQuery):
     await query.message.edit_text(
         text=client.messages.get('ABOUT', 'No Start Message').format(
             owner_id=client.owner,
-            bot_username=client.username,
+            bot_username = client.me.username,
             first=query.from_user.first_name,
             last=query.from_user.last_name,
             username=None if not query.from_user.username else '@' + query.from_user.username,
@@ -380,4 +380,5 @@ async def unban(client: Client, message: Message):
         return await message.reply(f"**Error:** `{e}`")
 
 #==========================================================================#                
+
 
