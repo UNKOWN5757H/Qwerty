@@ -170,7 +170,6 @@ async def quick_add_db(client: Client, message: Message):
             client.db_channels = {}
         client.db_channels[str(channel_id)] = channel_data
         
-        # ✅ LOGIC FIX: Set legacy client.db as well
         if channel_data['is_primary']:
             client.primary_db_channel = channel_id
             client.db = channel_id 
@@ -241,11 +240,9 @@ async def quick_remove_db(client: Client, message: Message):
     await client.mongodb.remove_db_channel(channel_id)
     del client.db_channels[str(channel_id)]
     
-    # ✅ LOGIC FIX: If the last channel was removed, clear client vars
     if was_primary and len(client.db_channels) == 0:
         client.primary_db_channel = None
         client.db = None
-        # Also update the primary in DB to None
         await client.mongodb.set_primary_db_channel(None) 
     
     await message.reply(f"""**✓ ᴅᴀᴛᴀʙᴀsᴇ ᴄʜᴀɴɴᴇʟ ʀᴇᴍᴏᴠᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ!**
@@ -272,8 +269,8 @@ async def home(client: Client, query: CallbackQuery):
             mention=query.from_user.mention,
             id=query.from_user.id
         ),
-        reply_markup=InlineKeyboardMarkup(buttons),
-        message_effect_id=MSG_EFFECT # Added MSG_EFFECT
+        reply_markup=InlineKeyboardMarkup(buttons)
+        # ❌ FIXED: Removed invalid 'message_effect_id' argument
     )
     return
 
@@ -292,8 +289,8 @@ async def about(client: Client, query: CallbackQuery):
             mention=query.from_user.mention,
             id=query.from_user.id
         ),
-        reply_markup=InlineKeyboardMarkup(buttons),
-        message_effect_id=MSG_EFFECT # Added MSG_EFFECT
+        reply_markup=InlineKeyboardMarkup(buttons)
+        # ❌ FIXED: Removed invalid 'message_effect_id' argument
     )
     return
 
