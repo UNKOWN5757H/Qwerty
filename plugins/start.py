@@ -6,6 +6,7 @@ from config import MSG_EFFECT, OWNER_ID
 from plugins.shortner import get_short
 from helper.helper_func import get_messages, force_sub, decode, batch_auto_del_notification
 import asyncio
+from pyrogram.errors import FloodWait # Added FloodWait
 
 #===============================================================#
 
@@ -88,12 +89,10 @@ async def start_command(client: Client, message: Message):
                 encoded_end = int(argument[2])
                 
                 # Try primary channel first
-                # ⬇️ FIXED HERE: Added int() to fix TypeError
                 primary_multiplier = abs(int(client.db))
                 start_primary = int(encoded_start / primary_multiplier)
                 end_primary = int(encoded_end / primary_multiplier)
                 
-                # Check if the division results in clean integers (meaning this channel was used for encoding)
                 if encoded_start % primary_multiplier == 0 and encoded_end % primary_multiplier == 0:
                     source_channel_id = client.db
                     start = start_primary
@@ -115,7 +114,6 @@ async def start_command(client: Client, message: Message):
                             client.LOGGER(__name__, client.name).info(f"Decoded batch from secondary channel {source_channel_id}: {start}-{end}")
                             break
                     
-                    # Fallback to primary if no match found
                     if source_channel_id is None:
                         source_channel_id = client.db
                         start = start_primary
@@ -127,9 +125,7 @@ async def start_command(client: Client, message: Message):
                 # Single message
                 encoded_msg = int(argument[1])
                 
-                # Try primary channel first
                 if hasattr(client, 'db_channel') and client.db_channel:
-                    # ⬇️ FIXED HERE: Added int() to fix TypeError
                     primary_multiplier = abs(int(client.db_channel.id))
                     msg_id_primary = int(encoded_msg / primary_multiplier)
                     
@@ -137,7 +133,6 @@ async def start_command(client: Client, message: Message):
                         source_channel_id = client.db_channel.id
                         ids = [msg_id_primary]
                     else:
-                        # Try secondary channels
                         db_channels = getattr(client, 'db_channels', {})
                         for channel_id_str in db_channels.keys():
                             channel_id = int(channel_id_str)
@@ -149,13 +144,11 @@ async def start_command(client: Client, message: Message):
                                 ids = [msg_id_test]
                                 break
                         
-                        # Fallback to primary
                         if source_channel_id is None:
                             source_channel_id = client.db_channel.id if hasattr(client, 'db_channel') else int(client.db)
                             ids = [msg_id_primary]
                 else:
                     # Fallback for legacy compatibility
-                    # ⬇️ FIXED HERE: Added int() to fix TypeError
                     source_channel_id = client.db
                     ids = [int(encoded_msg / abs(int(client.db)))]
 
@@ -165,7 +158,7 @@ async def start_command(client: Client, message: Message):
 
         # 7. Get messages from the specific source channel first
         temp_msg = await message.reply("Wait A Sec..")
-        messages = []
+        messages_raw = [] # Use a raw list to hold messages first
 
         try:
             # Try to get messages from the identified source channel first
@@ -176,43 +169,53 @@ async def start_command(client: Client, message: Message):
                         chat_id=int(source_channel_id), # Ensure chat_id is int
                         message_ids=list(ids)
                     )
-                    # Filter out None messages (deleted/not found)
                     valid_msgs = [msg for msg in msgs if msg is not None]
-                    messages.extend(valid_msgs)
+                    messages_raw.extend(valid_msgs)
                     client.LOGGER(__name__, client.name).info(f"Found {len(valid_msgs)} messages from source channel {source_channel_id}")
                     
-                    # If we didn't get all messages, try the fallback system
                     if len(valid_msgs) < len(list(ids)):
                         missing_ids = [mid for mid in ids if mid not in {msg.id for msg in valid_msgs}]
                         if missing_ids:
                             client.LOGGER(__name__, client.name).info(f"Missing {len(missing_ids)} messages, trying fallback system")
-                            # Use the fallback system for missing messages
                             additional_messages = await get_messages(client, missing_ids)
-                            messages.extend(additional_messages)
+                            messages_raw.extend(additional_messages)
                             client.LOGGER(__name__, client.name).info(f"Found {len(additional_messages)} additional messages from fallback")
                 except Exception as e:
                     client.LOGGER(__name__, client.name).warning(f"Error getting messages from source channel {source_channel_id}: {e}")
-                    # Fallback to the multi-channel system
-                    messages = await get_messages(client, ids)
+                    messages_raw = await get_messages(client, ids)
             else:
                 client.LOGGER(__name__, client.name).info("No specific source channel identified, using multi-channel fallback")
-                # Use the multi-channel fallback system
-                messages = await get_messages(client, ids)
+                messages_raw = await get_messages(client, ids)
         except Exception as e:
             await temp_msg.edit_text("Something went wrong!")
             client.LOGGER(__name__, client.name).warning(f"Error getting messages: {e}")
             return
 
+        # 💡 --- START OF FIX ---
+        # Filter out service messages (like 'user joined') that are not copyable
+        messages = [
+            msg for msg in messages_raw 
+            if msg.media or msg.text  # Only keep messages with actual content
+        ]
+        
+        if not messages_raw:
+            # This means the original get_messages returned nothing (e.g., MESSAGE_IDS_EMPTY)
+            return await temp_msg.edit("Couldn't find the files in the database. (Messages may be deleted).")
+        
         if not messages:
-            return await temp_msg.edit("Couldn't find the files in the database.")
+            # This means we found messages, but all were non-copyable service messages
+            client.LOGGER(__name__, client.name).warning(f"Found {len(messages_raw)} messages, but all were non-copyable service messages.")
+            return await temp_msg.edit("Couldn't find any files to send. (Messages might be service messages).")
+        # 💡 --- END OF FIX ---
+        
         await temp_msg.delete()
 
         yugen_msgs = []
-        for msg in messages:
+        for msg in messages: # This loop is now safe
             caption = (
                 client.messages.get('CAPTION', '').format(
-                    previouscaption=msg.caption.html if msg.caption else msg.document.file_name
-                ) if bool(client.messages.get('CAPTION', '')) and bool(msg.document)
+                    previouscaption=msg.caption.html if msg.caption else (msg.document.file_name if msg.document else "")
+                ) if bool(client.messages.get('CAPTION', ''))
                 else ("" if not msg.caption else msg.caption.html)
             )
             reply_markup = msg.reply_markup if not client.disable_btn else None
@@ -239,11 +242,9 @@ async def start_command(client: Client, message: Message):
                 pass
 
         # 8. Auto delete timer
-        if messages and client.auto_del > 0:
-            # Create transfer link for getting files again (original base64_string)
+        if yugen_msgs and client.auto_del > 0: # Check yugen_msgs, not messages
             transfer_link = original_payload
             
-            # Start batch auto delete notification - single notification for all files
             asyncio.create_task(batch_auto_del_notification(
                 bot_username = client.me.username,
                 messages=yugen_msgs,
@@ -291,7 +292,6 @@ async def start_command(client: Client, message: Message):
 @Client.on_message(filters.command('request') & filters.private)
 async def request_command(client: Client, message: Message):
     user_id = message.from_user.id
-    # Note: This line was already correct.
     is_admin = user_id in client.admins
     is_user_premium = await client.mongodb.is_pro(user_id)
 
@@ -330,7 +330,6 @@ async def request_command(client: Client, message: Message):
 @Client.on_message(filters.command('profile') & filters.private)
 async def my_plan(client: Client, message: Message):
     user_id = message.from_user.id
-    # Note: This line was also already correct.
     is_admin = user_id in client.admins
 
     if is_admin or user_id == OWNER_ID:
