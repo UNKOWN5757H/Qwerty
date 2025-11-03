@@ -242,7 +242,7 @@ async def start_command(client: Client, message: Message):
             
             # Start batch auto delete notification - single notification for all files
             asyncio.create_task(batch_auto_del_notification(
-                bot_username=client.username,
+                bot_username = client.me.username,
                 messages=yugen_msgs,
                 delay_time=client.auto_del,
                 transfer_link=transfer_link,
