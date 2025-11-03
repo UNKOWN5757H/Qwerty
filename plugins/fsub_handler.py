@@ -1,4 +1,4 @@
-
+# Save this as /app/plugins/fsub_handler.py
 from pyrogram import Client, filters
 from pyrogram.types import ChatMemberUpdated
 from pyrogram.enums import ChatMemberStatus
@@ -7,12 +7,19 @@ from plugins.processing import process_start_payload # Import our new function
 
 @Client.on_chat_member_updated()
 async def auto_fsub_handler(client: Client, update: ChatMemberUpdated):
+    
+    # Ignore if the update is for the bot itself
+    if update.new_chat_member and update.new_chat_member.user.is_self:
+        return
+
     # Check if this is a user joining a channel
     if (
         update.new_chat_member
-        and update.new_chat_member.status in {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR}
-        and update.old_chat_member
-        and update.old_chat_member.status not in {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR}
+        and update.new_chat_member.status in {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}
+        and (
+            not update.old_chat_member 
+            or update.old_chat_member.status not in {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}
+        )
     ):
         user_id = update.new_chat_member.user.id
         
@@ -25,7 +32,7 @@ async def auto_fsub_handler(client: Client, update: ChatMemberUpdated):
         # Check if the user is now subscribed to ALL required channels
         statuses = await check_subscription(client, user_id)
         if is_user_subscribed(statuses):
-            client.LOGGER(__name__, client.name).info(f"User {user_id} is now fully subscribed.")
+            client.LOGGER(__name__, client.name).info(f"User {user_row_id} is now fully subscribed.")
             
             # Check if they have a pending payload
             payload = await client.mongodb.get_pending_payload(user_id)
