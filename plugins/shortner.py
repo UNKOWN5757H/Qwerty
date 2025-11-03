@@ -1,10 +1,12 @@
-import requests
+import requests  # Kept for the synchronous get_short function
+import httpx     # Added for asynchronous HTTP requests
+import asyncio   # Added for asyncio.TimeoutError
 import random
 import string
 from config import SHORT_URL, SHORT_API, MESSAGES
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto
-from pyrogram.errors.pyromod import ListenerTimeout
+# Removed: from pyrogram.errors.pyromod import ListenerTimeout
 from helper.helper_func import force_sub
 
 # ✅ In-memory cache
@@ -15,24 +17,22 @@ def generate_random_alphanumeric():
     return ''.join(random.choice(characters) for _ in range(8))
 
 def get_short(url, client):
+    """Synchronous shortner function. Called by start.py"""
 
-    # Check if shortner is enabled
     shortner_enabled = getattr(client, 'shortner_enabled', True)
     if not shortner_enabled:
-        return url  # Return original URL if shortner is disabled
+        return url
 
-    # Step 2: Check cache
     if url in shortened_urls_cache:
         return shortened_urls_cache[url]
 
     try:
         alias = generate_random_alphanumeric()
-        # Use dynamic shortner settings from client if available
         short_url = getattr(client, 'short_url', SHORT_URL)
         short_api = getattr(client, 'short_api', SHORT_API)
         
         api_url = f"https://{short_url}/api?api={short_api}&url={url}&alias={alias}"
-        response = requests.get(api_url)
+        response = requests.get(api_url) # This is blocking, but changing it would break start.py
         rjson = response.json()
 
         if rjson.get("status") == "success" and response.status_code == 200:
@@ -47,24 +47,27 @@ def get_short(url, client):
 #===============================================================#
 
 @Client.on_message(filters.command('shortner') & filters.private)
+@force_sub # Assuming force_sub is an async decorator
 async def shortner_command(client: Client, message: Message):
+    if message.from_user.id not in client.admins:
+        return await message.reply(client.reply_text)
     await shortner_panel(client, message)
 
 #===============================================================#
 
 async def shortner_panel(client, query_or_message):
-    # Get current shortner settings
     short_url = getattr(client, 'short_url', SHORT_URL)
     short_api = getattr(client, 'short_api', SHORT_API)
     tutorial_link = getattr(client, 'tutorial_link', "https://t.me/how_to_opan_linkz/6")
     shortner_enabled = getattr(client, 'shortner_enabled', True)
     
-    # Check if shortner is working (only if enabled)
     if shortner_enabled:
         try:
-            test_response = requests.get(f"https://{short_url}/api?api={short_api}&url=https://t.me/KR_PICTURE&alias=test", timeout=5)
+            # ✅ FIXED: Use async httpx instead of blocking requests
+            async with httpx.AsyncClient(timeout=5) as http_client:
+                test_response = await http_client.get(f"https://{short_url}/api?api={short_api}&url=https://t.me/KR_PICTURE&alias=test")
             status = "✓ ᴡᴏʀᴋɪɴɢ" if test_response.status_code == 200 else "✗ ɴᴏᴛ ᴡᴏʀᴋɪɴɢ"
-        except:
+        except Exception:
             status = "✗ ɴᴏᴛ ᴡᴏʀᴋɪɴɢ"
     else:
         status = "✗ ᴅɪsᴀʙʟᴇᴅ"
@@ -86,16 +89,20 @@ async def shortner_panel(client, query_or_message):
         [InlineKeyboardButton(f'• {toggle_text} ꜱʜᴏʀᴛɴᴇʀ •', 'toggle_shortner'), InlineKeyboardButton('• ᴀᴅᴅ ꜱʜᴏʀᴛɴᴇʀ •', 'add_shortner')],
         [InlineKeyboardButton('• ꜱᴇᴛ ᴛᴜᴛᴏʀɪᴀʟ ʟɪɴᴋ •', 'set_tutorial_link')],
         [InlineKeyboardButton('• ᴛᴇꜱᴛ ꜱʜᴏʀᴛɴᴇʀ •', 'test_shortner')],
-        [InlineKeyboardButton('◂ ʙᴀᴄᴋ ᴛᴏ ꜱᴇᴛᴛɪɴɢꜱ', 'settings')] if hasattr(query_or_message, 'message') else []
+        # This logic correctly adds the back button only for callbacks
+        [InlineKeyboardButton('◂ ʙᴀᴄᴋ ᴛᴏ ꜱᴇᴛᴛɪngꜱ', 'settings_page_2')] if hasattr(query_or_message, 'message') else [InlineKeyboardButton('ᴄʟᴏsᴇ', 'close')]
     ])
     
     image_url = MESSAGES.get("SHORT", "https://envs.sh/gz3.jpg")
     
     if hasattr(query_or_message, 'message'):
-        await query_or_message.message.edit_media(
-            media=InputMediaPhoto(media=image_url, caption=msg),
-            reply_markup=reply_markup
-        )
+        try:
+            await query_or_message.message.edit_media(
+                media=InputMediaPhoto(media=image_url, caption=msg),
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            await query_or_message.message.edit(msg, reply_markup=reply_markup, disable_web_page_preview=True)
     else:
         await query_or_message.reply_photo(photo=image_url, caption=msg, reply_markup=reply_markup)
 
@@ -104,7 +111,7 @@ async def shortner_panel(client, query_or_message):
 
 @Client.on_callback_query(filters.regex("^shortner$"))
 async def shortner_callback(client, query):
-    if not query.from_user.id in client.admins:
+    if query.from_user.id not in client.admins:
         return await query.answer('❌ ᴏɴʟʏ ᴀᴅᴍɪɴꜱ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ!', show_alert=True)
     await query.answer()
     await shortner_panel(client, query)
@@ -113,27 +120,25 @@ async def shortner_callback(client, query):
 
 @Client.on_callback_query(filters.regex("^toggle_shortner$"))
 async def toggle_shortner(client: Client, query: CallbackQuery):
-    if not query.from_user.id in client.admins:
+    if query.from_user.id not in client.admins:
         return await query.answer('❌ ᴏɴʟʏ ᴀᴅᴍɪɴꜱ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ!', show_alert=True)
-    # Toggle the shortner status
+    
     current_status = getattr(client, 'shortner_enabled', True)
     new_status = not current_status
     client.shortner_enabled = new_status
     
-    # Save to database
     await client.mongodb.set_shortner_status(new_status)
     
     status_text = "ᴇɴᴀʙʟᴇᴅ" if new_status else "ᴅɪsᴀʙʟᴇᴅ"
     await query.answer(f"✓ ꜱʜᴏʀᴛɴᴇʀ {status_text}!")
     
-    # Refresh the panel
     await shortner_panel(client, query)
 
 #===============================================================#
 
 @Client.on_callback_query(filters.regex("^add_shortner$"))
 async def add_shortner(client: Client, query: CallbackQuery):
-    if not query.from_user.id in client.admins:
+    if query.from_user.id not in client.admins:
         return await query.answer('❌ ᴏɴʟʏ ᴀᴅᴍɪɴꜱ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ!', show_alert=True)
     
     await query.answer()
@@ -153,21 +158,19 @@ __<blockquote>**≡ ꜱᴇɴᴅ ɴᴇᴡ ꜱʜᴏʀᴛɴᴇʀ ᴜʀʟ ᴀɴᴅ �
     
     await query.message.edit_text(msg)
     try:
-        res = await client.listen(user_id=query.from_user.id, filters=filters.text, timeout=60)
+        # ✅ FIXED: Use client.ask and asyncio.TimeoutError
+        res = await client.ask(user_id=query.from_user.id, filters=filters.text, timeout=60)
         response_text = res.text.strip()
         
-        # Parse the response: url api
         parts = response_text.split()
         if len(parts) >= 2:
             new_url = parts[0].replace('https://', '').replace('http://', '').replace('/', '')
-            new_api = ' '.join(parts[1:])  # Join remaining parts as API key
+            new_api = ' '.join(parts[1:])  # Correctly handles APIs with spaces
             
             if new_url and '.' in new_url and new_api and len(new_api) > 10:
-                # Update both settings
                 client.short_url = new_url
                 client.short_api = new_api
                 
-                # Save to database
                 await client.mongodb.update_shortner_setting('short_url', new_url)
                 await client.mongodb.update_shortner_setting('short_api', new_api)
                 
@@ -179,7 +182,7 @@ __<blockquote>**≡ ꜱᴇɴᴅ ɴᴇᴡ ꜱʜᴏʀᴛɴᴇʀ ᴜʀʟ ᴀɴᴅ �
         else:
             await query.message.edit_text("**✗ ɪɴᴠᴀʟɪᴅ ꜰᴏʀᴍᴀᴛ! ᴘʟᴇᴀꜱᴇ ᴜꜱᴇ: `ᴜʀʟ ᴀᴘɪ`**", 
                                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('◂ ʙᴀᴄᴋ', 'shortner')]]))
-    except ListenerTimeout:
+    except asyncio.TimeoutError: # ✅ FIXED
         await query.message.edit_text("**⏰ ᴛɪᴍᴇᴏᴜᴛ! ᴛʀʏ ᴀɢᴀɪɴ.**", 
                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('◂ ʙᴀᴄᴋ', 'shortner')]]))
 
@@ -187,7 +190,7 @@ __<blockquote>**≡ ꜱᴇɴᴅ ɴᴇᴡ ꜱʜᴏʀᴛɴᴇʀ ᴜʀʟ ᴀɴᴅ �
 
 @Client.on_callback_query(filters.regex("^set_tutorial_link$"))
 async def set_tutorial_link(client: Client, query: CallbackQuery):
-    if not query.from_user.id in client.admins:
+    if query.from_user.id not in client.admins:
         return await query.answer('❌ ᴏɴʟʏ ᴀᴅᴍɪɴꜱ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ!', show_alert=True)
     
     await query.answer()
@@ -201,19 +204,19 @@ __ꜱᴇɴᴅ ᴛʜᴇ ɴᴇᴡ ᴛᴜᴛᴏʀɪᴀʟ ʟɪɴᴋ ɪɴ ᴛʜᴇ ɴ
     
     await query.message.edit_text(msg)
     try:
-        res = await client.listen(user_id=query.from_user.id, filters=filters.text, timeout=60)
+        # ✅ FIXED: Use client.ask and asyncio.TimeoutError
+        res = await client.ask(user_id=query.from_user.id, filters=filters.text, timeout=60)
         new_tutorial = res.text.strip()
         
         if new_tutorial and (new_tutorial.startswith('https://') or new_tutorial.startswith('http://')):
             client.tutorial_link = new_tutorial
-            # Save to database
             await client.mongodb.update_shortner_setting('tutorial_link', new_tutorial)
             await query.message.edit_text(f"**✓ ᴛᴜᴛᴏʀɪᴀʟ ʟɪɴᴋ ᴜᴘᴅᴀᴛᴇᴅ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ!**", 
                                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('◂ ʙᴀᴄᴋ', 'shortner')]]))
         else:
             await query.message.edit_text("**✗ ɪɴᴠᴀʟɪᴅ ʟɪɴᴋ ꜰᴏʀᴍᴀᴛ! ᴍᴜꜱᴛ ꜱᴛᴀʀᴛ ᴡɪᴛʜ https:// ᴏʀ http://**", 
                                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('◂ ʙᴀᴄᴋ', 'shortner')]]))
-    except ListenerTimeout:
+    except asyncio.TimeoutError: # ✅ FIXED
         await query.message.edit_text("**⏰ ᴛɪᴍᴇᴏᴜᴛ! ᴛʀʏ ᴀɢᴀɪɴ.**", 
                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('◂ ʙᴀᴄᴋ', 'shortner')]]))
 
@@ -221,11 +224,10 @@ __ꜱᴇɴᴅ ᴛʜᴇ ɴᴇᴡ ᴛᴜᴛᴏʀɪᴀʟ ʟɪɴᴋ ɪɴ ᴛʜᴇ ɴ
 
 @Client.on_callback_query(filters.regex("^test_shortner$"))
 async def test_shortner(client: Client, query: CallbackQuery):
-    if not query.from_user.id in client.admins:
+    if query.from_user.id not in client.admins:
         return await query.answer('❌ ᴏɴʟʏ ᴀᴅᴍɪɴꜱ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ!', show_alert=True)
     
     await query.answer()
-        
     await query.message.edit_text("**🔄 ᴛᴇꜱᴛɪɴɢ ꜱʜᴏʀᴛɴᴇʀ...**")
     
     short_url = getattr(client, 'short_url', SHORT_URL)
@@ -236,7 +238,10 @@ async def test_shortner(client: Client, query: CallbackQuery):
         alias = generate_random_alphanumeric()
         api_url = f"https://{short_url}/api?api={short_api}&url={test_url}&alias={alias}"
         
-        response = requests.get(api_url, timeout=10)
+        # ✅ FIXED: Use async httpx instead of blocking requests
+        async with httpx.AsyncClient(timeout=10) as http_client:
+            response = await http_client.get(api_url)
+        
         rjson = response.json()
         
         if rjson.get("status") == "success" and response.status_code == 200:
@@ -247,7 +252,7 @@ async def test_shortner(client: Client, query: CallbackQuery):
 **ꜱʜᴏʀᴛ ᴜʀʟ:** `{short_link}`
 **ʀᴇꜱᴘᴏɴꜱᴇ:** `{rjson.get('status', 'Unknown')}`"""
         else:
-            msg = f"""**❌ ꜱʜᴏʀᴛɴᴇʀ ᴛᴇꜱᴛ ꜰᴀɪʟᴇᴅ!**
+            msg = f"""**❌ ꜱʜᴏʀᴛɴᴇʀ ᴛᴇꜱᴛ ꜰᴀɪʟᴇD!**
 
 **ᴇʀʀᴏʀ:** `{rjson.get('message', 'Unknown error')}`
 **ꜱᴛᴀᴛᴜꜱ ᴄᴏᴅᴇ:** `{response.status_code}`"""
@@ -256,6 +261,3 @@ async def test_shortner(client: Client, query: CallbackQuery):
         msg = f"**❌ ꜱʜᴏʀᴛɴᴇʀ ᴛᴇꜱᴛ ꜰᴀɪʟᴇᴅ!**\n\n**ᴇʀʀᴏʀ:** `{str(e)}`"
     
     await query.message.edit_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('◂ ʙᴀᴄᴋ', 'shortner')]]))
-
-
-
