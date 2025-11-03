@@ -10,7 +10,7 @@ from logging.handlers import RotatingFileHandler
 # Core Bot Credentials
 API_ID = int(os.getenv("APP_ID", 2468192))
 API_HASH = os.getenv("API_HASH", "4906b3f8f198ec0e24edb2c197677678")
-BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "8316991207:AAFd1IFbMCTk_IlLolLuM2pzHUcsUUDjJbw")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8316991207:AAFd1IFbMCTk_IlLolLuM2pzHUcsUUDjJbw")
 SESSION = os.getenv("SESSION", "Qwerty")
 
 # Database Configuration
