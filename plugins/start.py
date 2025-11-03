@@ -88,7 +88,8 @@ async def start_command(client: Client, message: Message):
                 encoded_end = int(argument[2])
                 
                 # Try primary channel first
-                primary_multiplier = abs(client.db)
+                # ⬇️ FIXED HERE: Added int() to fix TypeError
+                primary_multiplier = abs(int(client.db))
                 start_primary = int(encoded_start / primary_multiplier)
                 end_primary = int(encoded_end / primary_multiplier)
                 
@@ -128,7 +129,8 @@ async def start_command(client: Client, message: Message):
                 
                 # Try primary channel first
                 if hasattr(client, 'db_channel') and client.db_channel:
-                    primary_multiplier = abs(client.db_channel.id)
+                    # ⬇️ FIXED HERE: Added int() to fix TypeError
+                    primary_multiplier = abs(int(client.db_channel.id))
                     msg_id_primary = int(encoded_msg / primary_multiplier)
                     
                     if encoded_msg % primary_multiplier == 0:
@@ -149,12 +151,13 @@ async def start_command(client: Client, message: Message):
                         
                         # Fallback to primary
                         if source_channel_id is None:
-                            source_channel_id = client.db_channel.id if hasattr(client, 'db_channel') else client.db
+                            source_channel_id = client.db_channel.id if hasattr(client, 'db_channel') else int(client.db)
                             ids = [msg_id_primary]
                 else:
                     # Fallback for legacy compatibility
+                    # ⬇️ FIXED HERE: Added int() to fix TypeError
                     source_channel_id = client.db
-                    ids = [int(encoded_msg / abs(client.db))]
+                    ids = [int(encoded_msg / abs(int(client.db)))]
 
         except Exception as e:
             client.LOGGER(__name__, client.name).warning(f"Error decoding base64: {e}")
@@ -170,7 +173,7 @@ async def start_command(client: Client, message: Message):
                 client.LOGGER(__name__, client.name).info(f"Trying to get messages from source channel: {source_channel_id}")
                 try:
                     msgs = await client.get_messages(
-                        chat_id=source_channel_id,
+                        chat_id=int(source_channel_id), # Ensure chat_id is int
                         message_ids=list(ids)
                     )
                     # Filter out None messages (deleted/not found)
@@ -288,7 +291,8 @@ async def start_command(client: Client, message: Message):
 @Client.on_message(filters.command('request') & filters.private)
 async def request_command(client: Client, message: Message):
     user_id = message.from_user.id
-    is_admin = user_id in client.admins  # ✅ Fix this line
+    # Note: This line was already correct.
+    is_admin = user_id in client.admins
     is_user_premium = await client.mongodb.is_pro(user_id)
 
     if is_admin or user_id == OWNER_ID:
@@ -326,7 +330,8 @@ async def request_command(client: Client, message: Message):
 @Client.on_message(filters.command('profile') & filters.private)
 async def my_plan(client: Client, message: Message):
     user_id = message.from_user.id
-    is_admin = user_id in client.admins  # ✅ Fix here
+    # Note: This line was also already correct.
+    is_admin = user_id in client.admins
 
     if is_admin or user_id == OWNER_ID:
         await message.reply_text("🔹 You're my sensei! This command is only for users.")
