@@ -1,3 +1,4 @@
+# Save this as /app/plugins/fsub_handler.py
 from pyrogram import Client, filters
 from pyrogram.types import ChatMemberUpdated
 from pyrogram.enums import ChatMemberStatus
@@ -16,7 +17,7 @@ async def auto_fsub_handler(client: Client, update: ChatMemberUpdated):
         user_id = update.new_chat_member.user.id
         
         # Check if the channel is one of our fsub channels
-        if update.chat.id not in client.fsub_dict:
+        if str(update.chat.id) not in client.fsub_dict:
             return # Not an fsub channel
 
         client.LOGGER(__name__, client.name).info(f"User {user_id} just joined FSUB channel {update.chat.id}")
