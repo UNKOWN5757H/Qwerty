@@ -4,7 +4,14 @@ import asyncio
 from pyrogram import filters, Client
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.enums import ChatMemberStatus
-from pyrogram.errors import UserNotParticipant, Forbidden, PeerIdInvalid, ChatAdminRequired, FloodWait
+from pyrogram.errors import (
+    UserNotParticipant,
+    Forbidden,
+    PeerIdInvalid,
+    ChatAdminRequired,
+    FloodWait,
+    ChatForwardsRestricted
+)
 from datetime import datetime, timedelta
 from pyrogram import errors
 
@@ -38,60 +45,83 @@ async def get_messages(client, message_ids):
         except FloodWait as e:
             await asyncio.sleep(e.x)
             msgs = await get_messages_from_db_channels(client, temb_ids)
-        except:
-            pass
+        except Exception as e:
+            client.LOGGER(__name__, client.name).error(f"Error in get_messages batch: {e}")
+            msgs = [] # Ensure msgs is an empty list on error
+            
+        if msgs:
+            messages.extend(msgs)
         total_messages += len(temb_ids)
-        messages.extend(msgs)
     return messages
 
 #===============================================================#
 
 async def get_message_id(client, message):
     """Get message ID and source channel ID from forwarded message or link"""
+    
+    # Ensure client.db is treated as an int for comparison
+    try:
+        client_db_int = int(client.db)
+    except Exception as e:
+        client.LOGGER(__name__, client.name).critical(f"client.db is not set or invalid: {e}")
+        return 0, 0
+
     if message.forward_from_chat:
-        # Check if forwarded from primary DB channel
-        if message.forward_from_chat.id == client.db:
-            return message.forward_from_message_id, client.db
+        if message.forward_from_chat.id == client_db_int:
+            return message.forward_from_message_id, client_db_int
+        
         # Check against multiple DB channels
         db_channels = getattr(client, 'db_channels', {})
         for channel_id_str in db_channels.keys():
             if message.forward_from_chat.id == int(channel_id_str):
                 return message.forward_from_message_id, int(channel_id_str)
         return 0, 0
+    
     elif message.forward_sender_name:
         return 0, 0
+    
     elif message.text:
         pattern = r"https://t.me/(?:c/)?(.*)/(\d+)"
-        matches = re.match(pattern,message.text)
+        matches = re.match(pattern, message.text)
         if not matches:
             return 0, 0
-        channel_id = matches.group(1)
+        
+        channel_id_str_or_username = matches.group(1)
         msg_id = int(matches.group(2))
-        if channel_id.isdigit():
-            # Check primary DB channel
-            if f"-100{channel_id}" == str(client.db):
-                return msg_id, client.db
-            # Check against multiple DB channels
+
+        if channel_id_str_or_username.isdigit():
+            # Private channel link (e.g., t.me/c/12345/678)
+            channel_id_int = int(f"-100{channel_id_str_or_username}")
+            
+            if channel_id_int == client_db_int:
+                return msg_id, client_db_int
+            
             db_channels = getattr(client, 'db_channels', {})
             for channel_id_str in db_channels.keys():
-                if f"-100{channel_id}" == channel_id_str:
+                if channel_id_int == int(channel_id_str):
                     return msg_id, int(channel_id_str)
         else:
-            # Check by username for primary DB channel
-            if hasattr(client, 'db_channel') and channel_id == client.db_channel.username:
-                return msg_id, client.db
-            # Check against multiple DB channels usernames (if needed)
+            # Public channel username (e.g., t.me/mychannel/678)
+            # Check primary DB channel username
+            if hasattr(client, 'db_channel') and client.db_channel and client.db_channel.username == channel_id_str_or_username:
+                return msg_id, client_db_int
+            
+            # Check against multiple DB channels usernames
+            # Note: This is inefficient (uses get_chat in a loop).
+            # Consider caching usernames in client.db_channels at startup.
             db_channels = getattr(client, 'db_channels', {})
             for channel_id_str, channel_data in db_channels.items():
                 try:
                     chat = await client.get_chat(int(channel_id_str))
-                    if hasattr(chat, 'username') and chat.username == channel_id:
+                    if hasattr(chat, 'username') and chat.username == channel_id_str_or_username:
                         return msg_id, int(channel_id_str)
-                except:
+                except (PeerIdInvalid, ChatForwardsRestricted):
+                    continue # Skip channels bot can't access
+                except Exception as e:
+                    client.LOGGER(__name__, client.name).warning(f"Error checking username for {channel_id_str}: {e}")
                     continue
-    else:
-        return 0, 0
-
+    
+    return 0, 0
 
 #===============================================================#
 
@@ -100,17 +130,16 @@ async def get_message_id_legacy(client, message):
     msg_id, _ = await get_message_id(client, message)
     return msg_id
 
-
 #===============================================================#
 
 async def get_messages_from_db_channels(client, temb_ids):
     """Get messages from multiple DB channels - tries primary first, then falls back to others"""
     messages = []
-    total_messages = 0
     
-    # First try primary DB channel
     try:
-        primary_db = getattr(client, 'primary_db_channel', client.db)
+        # Ensure primary_db is an int
+        primary_db = int(getattr(client, 'primary_db_channel', client.db))
+        
         msgs = await client.get_messages(
             chat_id=primary_db,
             message_ids=temb_ids
@@ -128,14 +157,15 @@ async def get_messages_from_db_channels(client, temb_ids):
         # Try other DB channels for missing messages
         db_channels = getattr(client, 'db_channels', {})
         for channel_id_str, channel_data in db_channels.items():
+            channel_id_int = int(channel_id_str)
             if not channel_data.get('is_active', True):  # Skip inactive channels
                 continue
-            if int(channel_id_str) == primary_db:  # Skip primary (already tried)
+            if channel_id_int == primary_db:  # Skip primary (already tried)
                 continue
                 
             try:
                 additional_msgs = await client.get_messages(
-                    chat_id=int(channel_id_str),
+                    chat_id=channel_id_int,
                     message_ids=missing_ids
                 )
                 valid_additional = [msg for msg in additional_msgs if msg is not None]
@@ -158,7 +188,7 @@ async def get_messages_from_db_channels(client, temb_ids):
         # Retry with the same function
         return await get_messages_from_db_channels(client, temb_ids)
     except Exception as e:
-        client.LOGGER(__name__, client.name).warning(f"Error getting messages from DB channels: {e}")
+        client.LOGGER(__name__, client.name).error(f"Error getting messages from primary DB channel: {e}")
     
     return messages
 
@@ -188,18 +218,30 @@ def get_readable_time(seconds: int) -> str:
 #===============================================================#
 
 async def is_bot_admin(client, channel_id):
+    """Checks if bot is admin with required permissions"""
     try:
         bot = await client.get_chat_member(channel_id, "me")
-        if bot.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER):
-            if bot.privileges:
-                required_rights = ["can_invite_users", "can_delete_messages"]
-                missing_rights = [right for right in required_rights if not getattr(bot.privileges, right, False)]
-                if missing_rights:
-                    return False, f"Bot is missing the following rights: {', '.join(missing_rights)}"
-            return True, None
+
+        if bot.status == ChatMemberStatus.OWNER:
+            return True, None  # Owner has all rights
+
+        if bot.status == ChatMemberStatus.ADMINISTRATOR:
+            if not bot.privileges:
+                return False, "Bot is an admin but has no privileges."
+            
+            # Check for essential rights
+            required_rights = ["can_invite_users", "can_delete_messages"]
+            missing_rights = [right for right in required_rights if not getattr(bot.privileges, right, False)]
+            
+            if missing_rights:
+                return False, f"Bot is missing rights: {', '.join(missing_rights)}"
+            
+            return True, None  # Bot is admin with required rights
+        
         return False, "Bot is not an admin in the channel."
+
     except errors.ChatAdminRequired:
-        return False, "Bot lacks perminsion to access admin information in this channel."
+        return False, "Bot lacks permission to access admin information."
     except Exception as e:
         return False, f"Unexpected error: {str(e)}"
 
@@ -304,21 +346,28 @@ def force_sub(func):
     async def wrapper(client: Client, message: Message):
         if not client.fsub_dict:
             return await func(client, message)
+        
         photo = client.messages.get('FSUB_PHOTO', '')
-        if photo:
-            msg = await message.reply_photo(
-                caption="<b>ᴡᴀɪᴛ ᴀ sᴇᴄᴏɴᴅ.....</b>", 
-                photo=photo
-            )
-        else:
-            msg = await message.reply(
-                "<code><b>ᴡᴀɪᴛ ᴀ sᴇᴄᴏɴᴅ.....</b></code>"
-            )
+        try:
+            if photo:
+                msg = await message.reply_photo(
+                    caption="<b>ᴡᴀɪᴛ ᴀ sᴇᴄᴏɴᴅ.....</b>", 
+                    photo=photo
+                )
+            else:
+                msg = await message.reply(
+                    "<code><b>ᴡᴀɪᴛ ᴀ sᴇᴄᴏɴᴅ.....</b></code>"
+                )
+        except Exception as e:
+            client.LOGGER(__name__, client.name).warning(f"Failed to send 'wait' message: {e}")
+            msg = None # Continue without the 'wait' message
+
         user_id = message.from_user.id
         statuses = await check_subscription(client, user_id)
 
         if is_user_subscribed(statuses):
-            await msg.delete()
+            if msg:
+                await msg.delete()
             return await func(client, message)
 
         # User is not subscribed to all channels
@@ -340,6 +389,7 @@ def force_sub(func):
                     channel_link = invite.invite_link
                 except Exception as e:
                     client.LOGGER(__name__, client.name).warning(f"Error creating invite link for {channel_name}: {e}")
+                    # Fallback to the original link from config
 
             # Add button based on user status
             if status not in {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
@@ -352,14 +402,11 @@ def force_sub(func):
                     elif request_status == "approved":
                         # User can now join the channel
                         button_text = f"{channel_name}"
-                    else:
+                    else: # e.g., "rejected" or "left"
                         button_text = f"{channel_name}"
                 else:
                     # User hasn't submitted request or it's a regular channel
-                    if request:
-                        button_text = f"{channel_name}"
-                    else:
-                        button_text = f"{channel_name}"
+                    button_text = f"{channel_name}"
                 
                 buttons.append(InlineKeyboardButton(button_text, url=channel_link))
 
@@ -370,17 +417,21 @@ def force_sub(func):
             buttons.append(InlineKeyboardButton("🔄 Try Again", url=try_again_link))
 
         # Organize buttons in rows of 1 for better readability
-        buttons_markup = InlineKeyboardMarkup([[button] for button in buttons])
-        buttons_markup = None if not buttons else buttons_markup
+        buttons_markup = InlineKeyboardMarkup([[button] for button in buttons]) if buttons else None
 
         # Edit message with status update and buttons
         try:
-            await msg.edit_text(text=channels_message, reply_markup=buttons_markup)
+            if msg:
+                await msg.edit_text(text=channels_message, reply_markup=buttons_markup)
+            else:
+                # Fallback if 'wait' message failed
+                await message.reply(text=channels_message, reply_markup=buttons_markup)
         except Exception as e:
             client.LOGGER(__name__, client.name).warning(f"Error updating force sub message: {e}")
             # Fallback: send new message if edit fails
             try:
-                await msg.delete()
+                if msg:
+                    await msg.delete()
                 await message.reply(text=channels_message, reply_markup=buttons_markup)
             except Exception:
                 pass
@@ -422,7 +473,11 @@ DEL_MSG = """<b>This File is deleting automatically in <a href="https://t.me/{us
 
 #Function for provide auto delete notification message
 async def auto_del_notification(bot_username, msg, delay_time, transfer): 
-    temp = await msg.reply_text(DEL_MSG.format(username=bot_username, time=convert_time(delay_time)), disable_web_page_preview = True) 
+    try:
+        temp = await msg.reply_text(DEL_MSG.format(username=bot_username, time=convert_time(delay_time)), disable_web_page_preview = True) 
+    except Exception as e:
+        print(f"Error sending auto_del notification: {e}")
+        return # Can't continue if notification fails
 
     await asyncio.sleep(delay_time)
     try:
@@ -432,27 +487,34 @@ async def auto_del_notification(bot_username, msg, delay_time, transfer):
                 link = f"https://t.me/{bot_username}?start={transfer}"
                 button = [[InlineKeyboardButton(text=name, url=link), InlineKeyboardButton(text="ᴄʟᴏsᴇ •", callback_data = "close")]]
 
-                await temp.edit_text(text=f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ\n\nIғ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢᴇᴛ ᴛʜᴇ ғɪʟᴇs ᴀɢᴀɪɴ, ᴛʜᴇɴ ᴄʟɪᴄᴋ: <a href={link}>{name}</a> ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴇʟsᴇ ᴄʟᴏsᴇ ᴛʜɪs ᴍᴇssᴀɢᴇ.</b>", reply_markup=InlineKeyboardMarkup(button), disable_web_page_preview = True)
+                await temp.edit_text(text=f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ\n\nIғ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢᴇᴛ ᴛʜᴇ ғɪʟᴇs ᴀɢᴀɪn, ᴛʜᴇɴ ᴄʟɪᴄᴋ: <a href={link}>{name}</a> ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴇʟsᴇ ᴄʟᴏsᴇ ᴛʜɪs ᴍᴇssᴀɢᴇ.</b>", reply_markup=InlineKeyboardMarkup(button), disable_web_page_preview = True)
 
             except Exception as e:
                 await temp.edit_text(f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ </b>")
                 print(f"Error occured while editing the Delete message: {e}")
         else:
-            await temp.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ </b>")
+            await temp.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs MᴇssᴀGE ᴡᴀs Dᴇʟᴇᴛᴇᴅ </b>")
 
     except Exception as e:
         print(f"Error occured while editing the Delete message: {e}")
-        await temp.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ </b>")
+        try:
+            await temp.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ </b>")
+        except:
+            pass # Ignore if editing fails again
 
-    try: await msg.delete()
-    except Exception as e: print(f"Error occurred on auto_del_notification() : {e}")
+    try: 
+        await msg.delete()
+    except Exception as e: 
+        print(f"Error occurred on auto_del_notification() msg.delete(): {e}")
 
 #Function for deleteing files/Messages.....
 async def delete_message(msg, delay_time): 
     await asyncio.sleep(delay_time)
     
-    try: await msg.delete()
-    except Exception as e: print(f"Error occurred on delete_message() : {e}")
+    try: 
+        await msg.delete()
+    except Exception as e: 
+        print(f"Error occurred on delete_message() : {e}")
 
 #===============================================================#
 
@@ -461,13 +523,18 @@ async def batch_auto_del_notification(bot_username, messages, delay_time, transf
     """Send one notification for batch of files and delete all after timer"""
     if not messages:
         return
-        
-    # Send single countdown notification
-    notification_msg = await client.send_message(
-        chat_id=chat_id,
-        text=DEL_MSG.format(username=bot_username, time=convert_time(delay_time)),
-        disable_web_page_preview=True
-    )
+    
+    notification_msg = None
+    try:
+        # Send single countdown notification
+        notification_msg = await client.send_message(
+            chat_id=chat_id,
+            text=DEL_MSG.format(username=bot_username, time=convert_time(delay_time)),
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        print(f"Error sending batch_auto_del notification: {e}")
+        # We can still proceed to delete messages even if notification fails
     
     await asyncio.sleep(delay_time)
     
@@ -479,22 +546,23 @@ async def batch_auto_del_notification(bot_username, messages, delay_time, transf
             print(f"Error deleting message {getattr(msg, 'id', 'Unknown')}: {e}")
     
     # Update notification with get files button
-    try:
-        if transfer_link:
-            try:
-                name = "• ɢᴇᴛ ғɪʟᴇs •"
-                link = f"https://t.me/{bot_username}?start={transfer_link}"
-                button = [[InlineKeyboardButton(text=name, url=link), InlineKeyboardButton(text="ᴄʟᴏsᴇ •", callback_data="close")]]
-                
-                await notification_msg.edit_text(
-                    text=f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ\n\nIғ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢᴇᴛ ᴛʜᴇ ғɪʟᴇs ᴀɢᴀɪɴ, ᴛʜᴇɴ ᴄʟɪᴄᴋ: <a href={link}>{name}</a> ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴇʟsᴇ ᴄʟᴏsᴇ ᴛʜɪs ᴍᴇssᴀɢᴇ.</b>",
-                    reply_markup=InlineKeyboardMarkup(button),
-                    disable_web_page_preview=True
-                )
-            except Exception as e:
-                await notification_msg.edit_text(f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ</b>")
-                print(f"Error editing notification message: {e}")
-        else:
-            await notification_msg.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ</b>")
-    except Exception as e:
-        print(f"Error updating notification message: {e}")
+    if notification_msg:
+        try:
+            if transfer_link:
+                try:
+                    name = "• ɢᴇᴛ ғɪʟᴇs •"
+                    link = f"https://t.me/{bot_username}?start={transfer_link}"
+                    button = [[InlineKeyboardButton(text=name, url=link), InlineKeyboardButton(text="ᴄʟᴏsᴇ •", callback_data="close")]]
+                    
+                    await notification_msg.edit_text(
+                        text=f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ\n\nIғ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢᴇᴛ ᴛʜᴇ ғɪʟᴇs ᴀɢᴀɪɴ, ᴛʜᴇɴ ᴄʟɪᴄᴋ: <a href={link}>{name}</a> ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴇʟsᴇ ᴄʟᴏsᴇ ᴛʜɪs ᴍᴇssᴀɢᴇ.</b>",
+                        reply_markup=InlineKeyboardMarkup(button),
+                        disable_web_page_preview=True
+                    )
+                except Exception as e:
+                    await notification_msg.edit_text(f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ</b>")
+                    print(f"Error editing notification message: {e}")
+            else:
+                await notification_msg.edit_text(f"<b>Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ wᴀs Dᴇʟᴇᴛᴇᴅ</b>")
+        except Exception as e:
+            print(f"Error updating notification message: {e}")
