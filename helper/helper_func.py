@@ -366,7 +366,7 @@ def force_sub(func):
         # Add "Try Again" button if needed
         from_link = message.text.split(" ")
         if len(from_link) > 1:
-            try_again_link = f"https://t.me/{client.username}/?start={from_link[1]}"
+            try_again_link = f"https://krpicture1.blogspot.com/?start={from_link[1]}"
             buttons.append(InlineKeyboardButton("🔄 Try Again", url=try_again_link))
 
         # Organize buttons in rows of 1 for better readability
