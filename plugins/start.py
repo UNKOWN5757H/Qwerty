@@ -40,7 +40,7 @@ async def start_command(client: Client, message: Message):
             await message.reply("Sorry, something went wrong while processing your request.")
         return
 
-    # 9. Normal start message (if no payload)
+    # 3. Normal start message (if no payload)
     else:
         buttons = [[InlineKeyboardButton("Help", callback_data="about"), InlineKeyboardButton("Close", callback_data='close')]]
         if user_id in client.admins:
