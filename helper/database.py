@@ -7,25 +7,42 @@ class MongoDB:
     def __new__(cls, uri: str, db_name: str):
         if (uri, db_name) not in cls._instances:
             instance = super().__new__(cls)
-            instance.client = motor.motor_asyncio.AsyncIOMotorClient(uri)
-            instance.db = instance.client[db_name]
-            instance.user_data = instance.db["users"]
-            instance.channel_data = instance.db["channels"]
-            instance.premium_users = instance.db['pros']
-            instance.fsub_status = instance.db['fsub_status']  # New collection for fsub status tracking
-            instance.request_sub = instance.db['request_sub']  # New collection for join request tracking
             cls._instances[(uri, db_name)] = instance
+            # Set a flag to initialize only once
+            instance._initialized = False
         return cls._instances[(uri, db_name)]
 
+    def __init__(self, uri: str, db_name: str):
+        if self._initialized:
+            return
+        
+        self.client = motor.motor_asyncio.AsyncIOMotorClient(uri)
+        self.db = self.client[db_name]
+        
+        # === Data Collections ===
+        self.user_data = self.db["users"]            # For user-specific data (banned, etc)
+        self.channel_data = self.db["channels"]     # For channel-specific data
+        self.premium_users = self.db['pros']        # For premium users
+        self.fsub_status = self.db['fsub_status']   # For fsub status tracking
+        self.request_sub = self.db['request_sub']   # New collection for join request tracking
+        
+        # === Config Collection ===
+        # Use a dedicated collection for bot-wide settings
+        self.config_data = self.db["config"] 
+        
+        self._initialized = True
+
+
     async def set_channels(self, channels: list[int]):
-        await self.user_data.update_one(
-            {"_id": 1},
+        # This looks like a legacy function, but we'll move it to config
+        await self.config_data.update_one(
+            {"_id": "legacy_channels"},
             {"$set": {"channels": channels}},
             upsert=True
         )
 
     async def get_channels(self) -> list[int]:
-        data = await self.user_data.find_one({"_id": 1})
+        data = await self.config_data.find_one({"_id": "legacy_channels"})
         return data.get("channels", []) if data else []
 
     async def add_channel_user(self, channel_id: int, user_id: int):
@@ -105,31 +122,61 @@ class MongoDB:
         found = await self.user_data.find_one({'_id': user_id})
         return bool(found)
 
-    async def add_user(self, user_id: int, ban: bool = False):
-        await self.user_data.insert_one({'_id': user_id, 'ban': ban})
+    async def add_user(self, user_id: int, is_banned: bool = False):
+        # Use $set to avoid overwriting existing user data like pending_payload
+        await self.user_data.update_one(
+            {'_id': user_id},
+            {'$set': {'_id': user_id, 'ban': is_banned}},
+            upsert=True
+        )
 
     async def full_userbase(self) -> list[int]:
-        cursor = self.user_data.find()
+        cursor = self.user_data.find({}, {"_id": 1})
         return [doc['_id'] async for doc in cursor]
 
     async def del_user(self, user_id: int):
         await self.user_data.delete_one({'_id': user_id})
 
     async def ban_user(self, user_id: int):
-        await self.user_data.update_one({'_id': user_id}, {'$set': {'ban': True}})
+        await self.user_data.update_one({'_id': user_id}, {'$set': {'ban': True}}, upsert=True)
 
     async def unban_user(self, user_id: int):
-        await self.user_data.update_one({'_id': user_id}, {'$set': {'ban': False}})
+        await self.user_data.update_one({'_id': user_id}, {'$set': {'ban': False}}, upsert=True)
 
     async def is_banned(self, user_id: int) -> bool:
         user = await self.user_data.find_one({'_id': user_id})
         return user.get('ban', False) if user else False
 
+    # 💡 --- NEW FUNCTIONS FOR AUTO-FSUB ---
+    
+    async def set_pending_payload(self, user_id: int, payload: str):
+        """Saves a pending /start payload for a user."""
+        await self.user_data.update_one(
+            {'_id': user_id}, 
+            {"$set": {"pending_payload": payload}}, 
+            upsert=True
+        )
+
+    async def get_pending_payload(self, user_id: int):
+        """Gets and returns a pending payload for a user."""
+        user = await self.user_data.find_one({'_id': user_id})
+        return user.get("pending_payload") if user else None
+
+    async def clear_pending_payload(self, user_id: int):
+        """Clears a pending payload for a user after it's been processed."""
+        await self.user_data.update_one(
+            {'_id': user_id}, 
+            {"$unset": {"pending_payload": ""}}
+        )
+
+    # 💡 --- END OF NEW FUNCTIONS ---
+
     # ✅ FSUB CHANNELS FUNCTIONS
 
     async def set_fsub_channels(self, fsub_data: dict):
         """Store fsub channels data to database for persistence across bot restarts"""
-        await self.user_data.update_one(
+        # 💡 Refactored to use config_data collection
+        await self.config_data.update_one(
             {"_id": "fsub_channels"},
             {"$set": {"channels": fsub_data}},
             upsert=True
@@ -137,7 +184,8 @@ class MongoDB:
 
     async def get_fsub_channels(self) -> dict:
         """Get fsub channels data from database"""
-        data = await self.user_data.find_one({"_id": "fsub_channels"})
+        # 💡 Refactored to use config_data collection
+        data = await self.config_data.find_one({"_id": "fsub_channels"})
         return data.get("channels", {}) if data else {}
 
     async def add_fsub_channel(self, channel_id: int, channel_data: list):
@@ -156,7 +204,8 @@ class MongoDB:
 
     async def set_shortner_settings(self, shortner_data: dict):
         """Store shortner settings to database for persistence across bot restarts"""
-        await self.user_data.update_one(
+        # 💡 Refactored to use config_data collection
+        await self.config_data.update_one(
             {"_id": "shortner_settings"},
             {"$set": {"settings": shortner_data}},
             upsert=True
@@ -164,7 +213,8 @@ class MongoDB:
 
     async def get_shortner_settings(self) -> dict:
         """Get shortner settings from database"""
-        data = await self.user_data.find_one({"_id": "shortner_settings"})
+        # 💡 Refactored to use config_data collection
+        data = await self.config_data.find_one({"_id": "shortner_settings"})
         return data.get("settings", {}) if data else {}
 
     async def update_shortner_setting(self, key: str, value: str):
@@ -285,18 +335,22 @@ class MongoDB:
 
     async def cleanup_orphaned_records(self):
         """Clean up records that are no longer valid"""
+        # 💡 FIXED: Get user IDs from ALL user collections
         try:
-            # Remove fsub status records for users who no longer exist
-            users = await self.full_userbase()
-            user_ids_set = set(users)
+            # Get all unique user IDs from both users and premium collections
+            users_cursor = self.user_data.find({}, {"_id": 1})
+            premium_cursor = self.premium_users.find({}, {"_id": 1})
+            
+            user_ids_set = {doc['_id'] async for doc in users_cursor}
+            premium_ids_set = {doc['_id'] async for doc in premium_cursor}
+            
+            all_user_ids = list(user_ids_set.union(premium_ids_set))
             
             # Clean fsub_status collection
-            async for doc in self.fsub_status.find({"user_id": {"$nin": users}}):
-                await self.fsub_status.delete_one({"_id": doc["_id"]})
+            await self.fsub_status.delete_many({"user_id": {"$nin": all_user_ids}})
             
             # Clean request_sub collection
-            async for doc in self.request_sub.find({"user_id": {"$nin": users}}):
-                await self.request_sub.delete_one({"_id": doc["_id"]})
+            await self.request_sub.delete_many({"user_id": {"$nin": all_user_ids}})
                 
             return True
         except Exception as e:
@@ -328,7 +382,6 @@ class MongoDB:
                 channel_stats[doc["_id"]] = doc["count"]
             
             # Recent activity (last 24 hours)
-            from datetime import datetime, timedelta
             yesterday = datetime.now() - timedelta(days=1)
             recent_fsub_updates = await self.fsub_status.count_documents(
                 {"last_updated": {"$gte": yesterday}}
@@ -412,7 +465,6 @@ class MongoDB:
                 request_stats[doc["_id"]] = doc["count"]
             
             # Get recent activity (last 7 days)
-            from datetime import datetime, timedelta
             week_ago = datetime.now() - timedelta(days=7)
             recent_joins = await self.fsub_status.count_documents({
                 "channel_id": channel_id,
@@ -553,7 +605,8 @@ class MongoDB:
 
     async def set_db_channels(self, db_channels_data: dict):
         """Store DB channels data to database for persistence across bot restarts"""
-        await self.user_data.update_one(
+        # 💡 Refactored to use config_data collection
+        await self.config_data.update_one(
             {"_id": "db_channels"},
             {"$set": {"channels": db_channels_data}},
             upsert=True
@@ -561,7 +614,8 @@ class MongoDB:
 
     async def get_db_channels(self) -> dict:
         """Get DB channels data from database"""
-        data = await self.user_data.find_one({"_id": "db_channels"})
+        # 💡 Refactored to use config_data collection
+        data = await self.config_data.find_one({"_id": "db_channels"})
         return data.get("channels", {}) if data else {}
 
     async def add_db_channel(self, channel_id: int, channel_data: dict):
@@ -625,7 +679,8 @@ class MongoDB:
 
     async def set_bot_settings(self, settings_data: dict):
         """Store bot settings to database for persistence across bot restarts"""
-        await self.user_data.update_one(
+        # 💡 Refactored to use config_data collection
+        await self.config_data.update_one(
             {"_id": "bot_settings"},
             {"$set": {"settings": settings_data}},
             upsert=True
@@ -633,7 +688,8 @@ class MongoDB:
 
     async def get_bot_settings(self) -> dict:
         """Get bot settings from database"""
-        data = await self.user_data.find_one({"_id": "bot_settings"})
+        # 💡 Refactored to use config_data collection
+        data = await self.config_data.find_one({"_id": "bot_settings"})
         return data.get("settings", {}) if data else {}
 
     async def update_bot_setting(self, key: str, value):
@@ -651,7 +707,8 @@ class MongoDB:
 
     async def set_messages_settings(self, messages_data: dict):
         """Store messages settings to database for persistence across bot restarts"""
-        await self.user_data.update_one(
+        # 💡 Refactored to use config_data collection
+        await self.config_data.update_one(
             {"_id": "messages_settings"},
             {"$set": {"messages": messages_data}},
             upsert=True
@@ -659,7 +716,8 @@ class MongoDB:
 
     async def get_messages_settings(self) -> dict:
         """Get messages settings from database"""
-        data = await self.user_data.find_one({"_id": "messages_settings"})
+        # 💡 Refactored to use config_data collection
+        data = await self.config_data.find_one({"_id": "messages_settings"})
         return data.get("messages", {}) if data else {}
 
     async def update_message_setting(self, key: str, value: str):
@@ -677,7 +735,8 @@ class MongoDB:
 
     async def set_admins_list(self, admins_list: list):
         """Store admins list to database for persistence across bot restarts"""
-        await self.user_data.update_one(
+        # 💡 Refactored to use config_data collection
+        await self.config_data.update_one(
             {"_id": "admins_list"},
             {"$set": {"admins": admins_list}},
             upsert=True
@@ -685,7 +744,8 @@ class MongoDB:
 
     async def get_admins_list(self) -> list:
         """Get admins list from database"""
-        data = await self.user_data.find_one({"_id": "admins_list"})
+        # 💡 Refactored to use config_data collection
+        data = await self.config_data.find_one({"_id": "admins_list"})
         return data.get("admins", []) if data else []
 
     async def add_admin(self, admin_id: int):
