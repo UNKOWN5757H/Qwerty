@@ -1,4 +1,4 @@
-# Save this as /app/plugins/fsub_handler.py
+
 from pyrogram import Client, filters
 from pyrogram.types import ChatMemberUpdated
 from pyrogram.enums import ChatMemberStatus
