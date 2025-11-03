@@ -30,7 +30,7 @@ ADMINS = [OWNER_ID]
 
 # Force Subscription Settings: [channel_id, enabled, timer_in_minutes]
 FSUBS = [
-    [-1003016571084, True, 10],
+    [-1001951277428, True, 10],
 ]
 
 # Database Channel
