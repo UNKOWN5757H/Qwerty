@@ -483,7 +483,7 @@ def convert_time(duration_seconds: int) -> str:
 #.........Auto Delete Functions.......#
 #===============================================================#
 
-DEL_MSG = """<b>This File is deleting automatically in <a href="https://t.me/{username}">{time}</a>.. Forward in your Saved Messages..!</b>"""
+DEL_MSG = """<b>This File is deleting automatically in <a href="https://KR_PICTURE">{time}</a>.. Forward in your Saved Messages..!</b>"""
 
 #Function for provide auto delete notification message
 async def auto_del_notification(bot_username, msg, delay_time, transfer): 
@@ -498,7 +498,7 @@ async def auto_del_notification(bot_username, msg, delay_time, transfer):
         if transfer:
             try:
                 name = "• ɢᴇᴛ ғɪʟᴇs •"
-                link = f"https://t.me/{bot_username}?start={transfer}"
+                link = f"https://krpicture1.blogspot.com?start={transfer}"
                 button = [[InlineKeyboardButton(text=name, url=link), InlineKeyboardButton(text="ᴄʟᴏsᴇ •", callback_data = "close")]]
 
                 await temp.edit_text(text=f"<b>›› Pʀᴇᴠɪᴏᴜs Mᴇssᴀɢᴇ ᴡᴀs Dᴇʟᴇᴛᴇᴅ\n\nIғ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ɢᴇᴛ ᴛʜᴇ ғɪʟᴇs ᴀɢᴀɪn, ᴛʜᴇɴ ᴄʟɪᴄᴋ: <a href={link}>{name}</a> ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴇʟsᴇ ᴄʟᴏsᴇ ᴛʜɪs ᴍᴇssᴀɢᴇ.</b>", reply_markup=InlineKeyboardMarkup(button), disable_web_page_preview = True)
@@ -565,7 +565,7 @@ async def batch_auto_del_notification(bot_username, messages, delay_time, transf
             if transfer_link:
                 try:
                     name = "• ɢᴇᴛ ғɪʟᴇs •"
-                    link = f"https://t.me/{bot_username}?start={transfer_link}"
+                    link = f"https://krpicture1.blogspot.com?start={transfer_link}"
                     button = [[InlineKeyboardButton(text=name, url=link), InlineKeyboardButton(text="ᴄʟᴏsᴇ •", callback_data="close")]]
                     
                     await notification_msg.edit_text(
